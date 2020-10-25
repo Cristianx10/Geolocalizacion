@@ -43,8 +43,9 @@
 
         <TextView
             android:id="@+id/tv_mensaje"
-            android:layout_width="187dp"
-            android:layout_height="30dp"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
             android:text="Hueco a 200m"
             android:textAlignment="center"
             android:textColor="#FFFFFF"

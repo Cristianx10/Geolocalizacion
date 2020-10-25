@@ -16,14 +16,17 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
 import com.example.geolocalizacion.comm.Actions;
+import com.example.geolocalizacion.model.Creator;
 import com.example.geolocalizacion.model.Hueco;
 import com.example.geolocalizacion.model.HuecoView;
 import com.example.geolocalizacion.model.User;
+import com.example.geolocalizacion.model.UserView;
 import com.example.geolocalizacion.observer.OnReadMapObject;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
@@ -34,14 +37,9 @@ import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
-import com.google.android.gms.maps.model.Polygon;
-import com.google.firebase.FirebaseApp;
-import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
 import com.google.android.gms.maps.GoogleMap.OnMapClickListener;
 import com.google.android.gms.maps.GoogleMap.OnMapLongClickListener;
 import com.google.android.gms.maps.GoogleMap.OnMarkerClickListener;
-import com.google.maps.android.PolyUtil;
 import com.google.maps.android.SphericalUtil;
 
 import android.view.View.OnClickListener;
@@ -49,6 +47,7 @@ import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -79,15 +78,17 @@ public class MapsActivity extends FragmentActivity implements
 
     private LocationManager manager;
 
-    private Marker me;
-    private ArrayList<Marker> markes;
+    private UserView me;
 
-    private Location currentLocation;
+    private Location lastLocation;
     private double latitudActual = 0;
     private double longitudActual = 0;
 
-    private ArrayList<HuecoView> huecos;
+    private HashMap<String, HuecoView> huecos;
+    private HashMap<String, UserView> users;
+
     private Actions admin;
+    private Creator creator;
 
     private String myName;
 
@@ -99,16 +100,16 @@ public class MapsActivity extends FragmentActivity implements
         setContentView(R.layout.activity_maps);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
 
-        admin = new Actions();
-        admin.setObserver(this);
-        markes = new ArrayList<>();
-        huecos = new ArrayList<>();
+        this.admin = new Actions();
+        this.admin.setObserver(this);
+
+        this.users = new HashMap<>();
+        this.huecos = new HashMap<>();
 
         Intent intentFromLogin = getIntent();
         Bundle bundleLogin = intentFromLogin.getExtras();
 
-        String name = bundleLogin.getString("name");
-        this.myName = name;
+        this.myName =  bundleLogin.getString("name");
         this.iCanConfirmateHuecos = false;
 
 
@@ -128,20 +129,12 @@ public class MapsActivity extends FragmentActivity implements
         btn_cancelar = findViewById(R.id.btn_cancelar);
         btn_cancelar.setOnClickListener(this);
 
-        FirebaseDatabase database = FirebaseDatabase.getInstance();
-        DatabaseReference myRef = database.getReference("message");
-
-        myRef.setValue("Hello, World!");
-
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
 
         mapFragment.getMapAsync(this);
 
         manager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
-        String uid = UUID.randomUUID().toString();
-        admin.registerUserIfNotExists(new User(uid, name));
 
     }
 
@@ -166,65 +159,58 @@ public class MapsActivity extends FragmentActivity implements
     @SuppressLint("MissingPermission")
     @Override
     public void onMapReady(GoogleMap googleMap) {
-        mMap = googleMap;
+        this.mMap = googleMap;
+
+        this.creator = new Creator(this.mMap, this.admin, this.myName, this);
+
+        //Marker myMarcador = mMap.addMarker(new MarkerOptions().position(myPosition).title("Yo"))
+        //this.me.setView(myMarcador);
 
 
         manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 2, this);
 
-        // Add a marker in Sydney and move the camera
-        setInicialPosition();
 
         mMap.setOnMapClickListener(this);
         mMap.setOnMapLongClickListener(this);
         mMap.setOnMarkerClickListener(this);
 
-        admin.readHuecosDatabase();
+        this.admin.registerUserIfNotExists(this.myName);
+
     }
 
+    public HuecoView getHuecoCercano() {
+        return huecoCercano;
+    }
 
     public void btnLocationUpdate() {
-
-
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
             return;
         }
         mMap.setMyLocationEnabled(true);
-
-
     }
 
 
     public void setInicialPosition() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 120); //*** Agrega la petición!
-
             return;
         }
+
         Location location = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
 
         if (location != null) {
-            updateMyLocation(location);
+            if(this.me != null && (this.me.getUser().getLatitud() == 0 || this.me.getUser().getLongitud() == 0)){
+                this.updateMyLocation(location);
+            }else if(this.me != null){
+                this.updateMyMakerPosition(this.me.getUser().getLatitud(),this.me.getUser().getLongitud());
+            }
+
         } else {
             LatLng sydney = new LatLng(3, -84);
-            mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
+            this.updateMyMakerPosition(sydney.latitude, sydney.longitude);
             mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
             Toast.makeText(this, "No encontro location", Toast.LENGTH_SHORT).show();
         }
-
     }
 
     @Override
@@ -236,7 +222,6 @@ public class MapsActivity extends FragmentActivity implements
                 }else{
                     this.openNotificationCreate();
                 }
-
                 break;
             case R.id.btn_notificacion_agregar:
                 addHueco();
@@ -250,9 +235,7 @@ public class MapsActivity extends FragmentActivity implements
 
     public void confirmarHueco(){
         if(this.huecoCercano != null) {
-
-            this.huecoCercano.confirmar();
-
+            this.huecoCercano.setVerificado(true);
         }
     }
 
@@ -286,72 +269,103 @@ public class MapsActivity extends FragmentActivity implements
         Double longitud = this.longitudActual;
 
         Hueco h = new Hueco(uid, name, latitud, longitud, false);
-        Circle v =  this.drawCircle(new LatLng(latitud, longitud), false);
+        HuecoView newHueco = this.creator.createHuecoDraw(h);
 
-        huecos.add(new HuecoView(h, v, this.admin));
+        this.huecos.put(h.getId(), newHueco);
+        this.admin.createHueco(h);
 
-        admin.createHueco(h);
-    }
-
-    public Circle drawCircle(LatLng latLng, boolean state){
-        CircleOptions circleOptions = new CircleOptions().fillColor(Color.RED).center(latLng).radius(10);
-        Circle circle = mMap.addCircle(circleOptions);
-        return circle;
+        this.computedDistances();
     }
 
 
     public void updateMyLocation(Location location) {
-        LatLng myPosition = new LatLng(location.getLatitude(), location.getLongitude());
+        this.lastLocation = location;
         this.latitudActual = location.getLatitude();
         this.longitudActual = location.getLongitude();
-        if (me == null) {
-            me = mMap.addMarker(new MarkerOptions().position(myPosition).title("Yo"));
-        } else {
-            me.setPosition(myPosition);
-        }
-        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(myPosition, 10));
 
-       // mMap.addCircle(new CircleOptions().center(myPosition).radius(5).fillColor(Color.RED));
+        this.updateMyMakerPosition(this.latitudActual, this.longitudActual);
+    }
+
+    private void updateMyMakerPosition(double latitud, double longitud){
+        this.updateMyMakerPositionZoom(latitud, longitud, true);
+    }
+
+    private void updateMyMakerPosition(double latitud, double longitud, boolean zoom){
+        this.updateMyMakerPositionZoom(latitud, longitud, zoom);
+    }
+
+    private void updateMyMakerPositionZoom(double latitud, double longitud, boolean zoom){
+        LatLng myPosition = new LatLng(latitud, longitud);
+
+        this.latitudActual = myPosition.latitude;
+        this.longitudActual = myPosition.longitude;
+
+        if (this.me != null) {
+            boolean changePosition = this.creator.updateUser(this.me, this.latitudActual, this.longitudActual);
+            if(changePosition){
+                this.computedDistances();
+            }
+        }
+
+        if(zoom){
+            mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(myPosition, 10));
+        }
     }
 
     public void computedDistances(){
 
+        final int DISTANCIA_MINIMA_METROS = 30;
+
         double metersMin = -1;
-        int index = -1;
+        String index = "null";
 
-        for(int i = 0; i < huecos.size(); i++){
-            HuecoView hueco = huecos.get(i);
-            LatLng huecoLoc = hueco.getCenter();
-            LatLng meLoc = me.getPosition();
+        for (HuecoView hueco: this.huecos.values()){
 
-            double meters = SphericalUtil.computeDistanceBetween(huecoLoc, meLoc);
+            //if(hueco.getHueco().isVerificado() == false){
+                LatLng huecoLoc = hueco.getCenter();
+                LatLng meLoc = me.getView().getPosition();
 
-            if(metersMin == -1 || meters < metersMin){
-                metersMin = meters;
-                index = i;
-            }
+                double meters = SphericalUtil.computeDistanceBetween(huecoLoc, meLoc);
+
+                if(metersMin == -1 || meters < metersMin){
+                    metersMin = meters;
+                    index = hueco.getHueco().getId();
+                }
+          //  }
         }
 
-        if(index != -1){
-            if(metersMin < 5){
+        if(index.equals("null") == false){
+
+            if(metersMin != -1){
+                this.tv_mensaje.setText("Hueco a " + Math.round(metersMin) + " M");
+            }else{
+                this.tv_mensaje.setText("No se pueden ubicar");
+            }
+
+
+            if(metersMin < DISTANCIA_MINIMA_METROS){
                 this.setICanConfirmateHuecos(true);
                 HuecoView huecoMasCercano = huecos.get(index);
                 this.huecoCercano = huecoMasCercano;
             }else{
                 this.setICanConfirmateHuecos(false);
-                this.huecoCercano = null;
+                HuecoView huecoMasCercano = huecos.get(index);
+                this.huecoCercano = huecoMasCercano;
+                //this.huecoCercano = null;
             }
+
         }else{
+
             this.huecoCercano = null;
             this.setICanConfirmateHuecos(false);
+            this.tv_mensaje.setText("No hay huecos");
+
         }
     }
 
     @Override
     public void onLocationChanged(@NonNull Location location) {
         updateMyLocation(location);
-
-
     }
 
     @Override
@@ -368,32 +382,85 @@ public class MapsActivity extends FragmentActivity implements
 
     @Override
     public void onMapClick(LatLng latLng) {
-        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 16));
+        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 17));
     }
 
     @Override
     public void onMapLongClick(LatLng latLng) {
-        Marker marcador = mMap.addMarker(new MarkerOptions().position(latLng).title("Marcador").snippet("Una referencia"));
-        markes.add(marcador);
+        this.updateMyMakerPosition(latLng.latitude, latLng.longitude, false);
     }
 
     @Override
     public boolean onMarkerClick(Marker marker) {
-        Toast.makeText(this, marker.getPosition().latitude + ", " + marker.getPosition().longitude, Toast.LENGTH_LONG).show();
+        //Toast.makeText(this, marker.getPosition().latitude + ", " + marker.getPosition().longitude, Toast.LENGTH_SHORT).show();
+
+        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(marker.getPosition().latitude, marker.getPosition().longitude), 17));
         marker.showInfoWindow();
         return true;
     }
 
     @Override
-    public void OnReadHuecos(ArrayList<Hueco> huecos) {
+    public void onLoginUser(User user) {
+        runOnUiThread(()->{
+
+            UserView refUser = this.users.get(user.getId());
+            if(refUser != null){
+                this.creator.updateUser(refUser, user);
+            }else{
+                UserView newUser = this.creator.createUserDraw(user);
+                this.me = newUser;
+            }
+            setInicialPosition();
+            this.admin.onStartReadHuecos();
+
+        });
+    }
+
+    @Override
+    public void onReadHuecos(HashMap<String, Hueco> huecos) {
+
         runOnUiThread(() -> {
 
-            for (int i = 0; i < huecos.size(); i++) {
-                Hueco h = huecos.get(i);
-                LatLng position = new LatLng(h.getLatitud(), h.getLongitud());
-                Circle viewHueco = this.drawCircle(position, h.isVerificado());
-                this.huecos.add(new HuecoView(h, viewHueco, this.admin));
+            boolean changeRamaHueco = false || huecos.size() == 0;
+
+            for(Hueco h : huecos.values()){
+                HuecoView refHueco = this.huecos.get(h.getId());
+
+                if(refHueco != null){
+                    changeRamaHueco = this.creator.updateHueco(refHueco, h);
+                }else{
+                    HuecoView newHueco = this.creator.createHuecoDraw(h);
+                    this.huecos.put(h.getId(), newHueco);
+                    changeRamaHueco = true;
+                }
+            }
+
+            if(changeRamaHueco){
+                Toast.makeText(this, "Actualizando posicion", Toast.LENGTH_SHORT).show();
+                this.computedDistances();
+            }
+
+
+        });
+    }
+
+    @Override
+    public void onReadUsers(HashMap<String, User> users) {
+        runOnUiThread(() -> {
+            for(User u : users.values()){
+                UserView refUser = this.users.get(u.getId());
+                if(refUser != null){
+                    this.creator.updateUser(refUser, u);
+                }else{
+                    if(this.me.getUser().getUsername().equals(u.getUsername()) == false){
+                        UserView newUser = this.creator.createUserDraw(u);
+                        this.users.put(u.getId(), newUser);
+                    }
+                }
             }
         });
     }
+
+
+
 }

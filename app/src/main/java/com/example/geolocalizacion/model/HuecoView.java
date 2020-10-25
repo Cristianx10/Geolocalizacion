@@ -1,6 +1,7 @@
 package com.example.geolocalizacion.model;
 
 import android.graphics.Color;
+import android.util.Log;
 
 import com.example.geolocalizacion.comm.Actions;
 import com.google.android.gms.maps.model.Circle;
@@ -17,16 +18,31 @@ public class HuecoView {
         this.hueco = hueco;
         this.view = view;
         this.actions = actions;
+        this.updateStatusVerificado();
     }
 
     public LatLng getCenter(){
         return this.view.getCenter();
     }
 
-    public void confirmar(){
-        this.getHueco().setVerificado(true);
-        this.actions.confirmarHueco(this);
-        this.view.setFillColor(Color.GREEN);
+    public void setVerificado(boolean verificado){
+
+        if(this.getHueco().isVerificado() == false) {
+            this.getHueco().setVerificado(verificado);
+            this.actions.confirmarHueco(this);
+        }else{
+            this.getHueco().setVerificado(verificado);
+        }
+
+        this.updateStatusVerificado();
+    }
+
+    private void updateStatusVerificado(){
+        if(this.getHueco().isVerificado()){
+            this.view.setFillColor(Color.GREEN);
+        }else{
+            this.view.setFillColor(Color.RED);
+        }
     }
 
     public Hueco getHueco() {

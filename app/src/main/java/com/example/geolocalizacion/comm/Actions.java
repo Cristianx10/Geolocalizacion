@@ -1,10 +1,12 @@
 package com.example.geolocalizacion.comm;
 
 import android.annotation.SuppressLint;
+import android.util.Log;
 
 import com.example.geolocalizacion.model.Hueco;
 import com.example.geolocalizacion.model.HuecoView;
 import com.example.geolocalizacion.model.User;
+import com.example.geolocalizacion.model.UserView;
 import com.example.geolocalizacion.observer.OnReadMapObject;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -12,6 +14,7 @@ import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.UUID;
 
 
 public class Actions {
@@ -19,11 +22,12 @@ public class Actions {
     private HTTPSWebUtilDomi https;
     private Gson gson;
 
-    private ArrayList<Hueco> huecos;
-
     public static String URL_PROYECT = "https://geolocalizacion-292101.firebaseio.com/";
 
     private OnReadMapObject observer;
+
+    private boolean isAliveReadHuecos;
+    private boolean isAliveReadUsers;
 
     //METODO DE SUSCRIPCION AL EVENTO
 
@@ -31,42 +35,58 @@ public class Actions {
     public Actions() {
         https = new HTTPSWebUtilDomi();
         gson = new Gson();
-        this.huecos = new ArrayList<>();
+        this.isAliveReadHuecos = true;
+        this.isAliveReadUsers = true;
+    }
+
+
+    public void onStartReadHuecos(){
+        Thread hilo = new Thread(()->{
+
+            while (isAliveReadHuecos){
+                try {
+
+                    this.readUsuariosDatabase();
+                    this.readHuecosDatabase();
+
+                    Thread.sleep(10000);
+
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        hilo.start();
     }
 
     //Se pide el usuario. Si es nulo es porque no existe y se crea. Si ya existia no se crea
-    public void registerUserIfNotExists(final User user) {
+    public void registerUserIfNotExists(String nameUser) {
         new Thread(
                 ()->{
-                        String url = URL_PROYECT + "/users/" + user.getUsername() + ".json";
+                        String url = URL_PROYECT + "/users/" + nameUser + ".json";
                         String response = https.GETrequest(url);
+
                         //SI EL USUARIO NO EXISTE, LO CREAMOS
                         if (response.equals("null")) {
-                            https.PUTrequest(url, gson.toJson(user));
-                            // if(onRegisterListener!=null) onRegisterListener.onRegisterUser(false, user);
+                            String uid = UUID.randomUUID().toString();
+                            User usuario = new User(uid, nameUser, 0, 0);
+
+                            https.PUTrequest(url, gson.toJson(usuario));
+
+                            if(this.observer !=null){
+                                this.observer.onLoginUser(usuario);
+                            }
+
                         } else {
-                            User currentUser = gson.fromJson(response, User.class);
-                            //if(onRegisterListener!=null) onRegisterListener.onRegisterUser(true, currentUser);
+                            User usuario = gson.fromJson(response, User.class);
+
+                            if(this.observer !=null){
+                                this.observer.onLoginUser(usuario);
+                            }
                         }
 
                 }
         ).start();
-    }
-
-    //Conseguir todos los usuarios
-    public void getAllUsers() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                String url = URL_PROYECT + "/users.json";
-                String response = https.GETrequest(url);
-                // Type type = new TypeToken<HashMap<String, User>>(){}.getType();
-                // HashMap<String, User> users = gson.fromJson(response, type);
-                // ArrayList<User> output = new ArrayList<>();
-                // users.forEach( (key, value) -> output.add(value) );
-                //if(onUserListListener!=null) onUserListListener.onGetUsers(output);
-            }
-        }).start();
     }
 
 
@@ -87,16 +107,38 @@ public class Actions {
         new Thread(() -> {
             String url = URL_PROYECT + "/huecos.json";
             String response = https.GETrequest(url);
+            Type type = new TypeToken<HashMap<String, Hueco>>() {
+            }.getType();
+            HashMap<String, Hueco> huecos = new HashMap<>();
+            if (response.equals("null")) {
+                if (this.observer != null) {
+                    this.observer.onReadHuecos(huecos);
+                }
+            }else{
+               huecos = gson.fromJson(response, type);
+                if (this.observer != null) {
+                    this.observer.onReadHuecos(huecos);
+                }
+            }
+
+        }).start();
+    }
+
+
+    @SuppressLint("NewApi")
+    public void readUsuariosDatabase() {
+
+        new Thread(() -> {
+            String url = URL_PROYECT + "/users.json";
+            String response = https.GETrequest(url);
             if (response.equals("null")) {
             }else{
-                Type type = new TypeToken<HashMap<String, Hueco>>() {
+                Type type = new TypeToken<HashMap<String, User>>() {
                 }.getType();
-                HashMap<String, Hueco> users = gson.fromJson(response, type);
-                ArrayList<Hueco> output = new ArrayList<>();
-                users.forEach((key, value) -> output.add(value));
-                this.huecos = output;
+                HashMap<String, User> users = gson.fromJson(response, type);
+
                 if (this.observer != null) {
-                    this.observer.OnReadHuecos(output);
+                    this.observer.onReadUsers(users);
                 }
             }
 
@@ -108,6 +150,15 @@ public class Actions {
                 ()->{
                     String url = URL_PROYECT + "/huecos/" + hueco.getHueco().getId() + ".json";
                     https.PUTrequest(url, gson.toJson(hueco.getHueco()));
+                }
+        ).start();
+    }
+
+    public void updateUser(UserView user){
+        new Thread(
+                ()->{
+                    String url = URL_PROYECT + "/users/" + user.getUser().getUsername() + ".json";
+                    https.PUTrequest(url, gson.toJson(user.getUser()));
                 }
         ).start();
     }
