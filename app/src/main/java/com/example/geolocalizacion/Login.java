@@ -42,7 +42,7 @@ public class Login extends AppCompatActivity implements OnClickListener {
 
                 Intent goToMaps = new Intent(this, MapsActivity.class);
                 String name = et_username.getText().toString();
-                goToMaps.putExtra("name", name);
+                goToMaps.putExtra("name", name.toLowerCase());
 
                 startActivity(goToMaps);
 

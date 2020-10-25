@@ -199,6 +199,7 @@ public class MapsActivity extends FragmentActivity implements
         Location location = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
 
         if (location != null) {
+
             if(this.me != null && (this.me.getUser().getLatitud() == 0 || this.me.getUser().getLongitud() == 0)){
                 this.updateMyLocation(location);
             }else if(this.me != null){
